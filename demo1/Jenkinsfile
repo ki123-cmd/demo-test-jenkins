@@ -35,8 +35,9 @@ pipeline {
 
         stage('Build') {
             steps {
+                // Jenkins 跑在 Windows 上，没有 sh.exe，用 bat 代替
                 dir(PROJECT_DIR) {
-                    sh 'mvn -B clean package -DskipTests'
+                    bat 'mvn -B clean package -DskipTests'
                 }
             }
         }
@@ -49,16 +50,17 @@ pipeline {
 
         stage('Deploy') {
             steps {
-                sshagent(credentials: [SSH_CRED_ID]) {
-                    sh """
-                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${REMOTE_HOST} 'mkdir -p ${REMOTE_DIR}'
-                        scp -o StrictHostKeyChecking=no ${PROJECT_DIR}/target/${JAR_NAME} ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/${JAR_NAME}
-                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${REMOTE_HOST} '
-                            ln -sfn ${REMOTE_DIR}/${JAR_NAME} ${REMOTE_DIR}/app.jar
-                            sudo systemctl restart ${SERVICE_NAME}
-                            sleep 3
-                            systemctl is-active --quiet ${SERVICE_NAME} && echo "服务已启动" || (echo "服务启动失败" && exit 1)
-                        '
+                // 把 Credentials 里的私钥临时导出成一个文件，供 Windows 自带的 ssh/scp 使用
+                withCredentials([sshUserPrivateKey(credentialsId: SSH_CRED_ID, keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
+                    bat """
+                        ssh -o StrictHostKeyChecking=no -i "%SSH_KEY%" %SSH_USER%@${REMOTE_HOST} "mkdir -p ${REMOTE_DIR}"
+                        if errorlevel 1 exit /b 1
+
+                        scp -o StrictHostKeyChecking=no -i "%SSH_KEY%" ${PROJECT_DIR}/target/${JAR_NAME} %SSH_USER%@${REMOTE_HOST}:${REMOTE_DIR}/${JAR_NAME}
+                        if errorlevel 1 exit /b 1
+
+                        ssh -o StrictHostKeyChecking=no -i "%SSH_KEY%" %SSH_USER%@${REMOTE_HOST} "ln -sfn ${REMOTE_DIR}/${JAR_NAME} ${REMOTE_DIR}/app.jar && sudo systemctl restart ${SERVICE_NAME} && sleep 3 && systemctl is-active --quiet ${SERVICE_NAME} && echo deployed || (echo deploy-failed && exit 1)"
+                        if errorlevel 1 exit /b 1
                     """
                 }
             }
