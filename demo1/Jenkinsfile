@@ -1,0 +1,72 @@
+pipeline {
+    agent any
+
+    // 触发方式：GitHub webhook 推送后触发（需要在 Jenkins 任务里勾选
+    // "GitHub hook trigger for GITScm polling"，并在 GitHub 仓库配置 webhook）
+    triggers {
+        githubPush()
+    }
+
+    tools {
+        // 名称需要和 Jenkins -> Manage Jenkins -> Tools 里配置的一致
+        jdk 'jdk17'
+        maven 'maven3'
+    }
+
+    environment {
+        APP_NAME     = 'demo1'
+        JAR_NAME     = 'demo1-0.0.1-SNAPSHOT.jar'
+        REMOTE_HOST  = '39.96.35.250'
+        REMOTE_USER  = 'deploy'
+        REMOTE_DIR   = '/opt/apps/demo1'
+        SERVICE_NAME = 'demo1'
+        // Jenkins Credentials 里 "SSH Username with private key" 的 ID
+        SSH_CRED_ID  = 'deploy-server-ssh'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'mvn -B clean package -DskipTests'
+            }
+        }
+
+        stage('Archive') {
+            steps {
+                archiveArtifacts artifacts: "target/${JAR_NAME}", fingerprint: true
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                sshagent(credentials: [SSH_CRED_ID]) {
+                    sh """
+                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${REMOTE_HOST} 'mkdir -p ${REMOTE_DIR}'
+                        scp -o StrictHostKeyChecking=no target/${JAR_NAME} ${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/${JAR_NAME}
+                        ssh -o StrictHostKeyChecking=no ${REMOTE_USER}@${REMOTE_HOST} '
+                            ln -sfn ${REMOTE_DIR}/${JAR_NAME} ${REMOTE_DIR}/app.jar
+                            sudo systemctl restart ${SERVICE_NAME}
+                            sleep 3
+                            systemctl is-active --quiet ${SERVICE_NAME} && echo "服务已启动" || (echo "服务启动失败" && exit 1)
+                        '
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "部署成功: ${APP_NAME}"
+        }
+        failure {
+            echo "构建或部署失败，请检查日志"
+        }
+    }
+}

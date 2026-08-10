@@ -1,0 +1,15 @@
+[Unit]
+Description=demo1 Spring Boot Application
+After=network.target
+
+[Service]
+User=deploy
+WorkingDirectory=/opt/apps/demo1
+# app.jar 是 Jenkins 部署时创建的软链接，始终指向最新版本的 jar
+ExecStart=/usr/bin/java -jar /opt/apps/demo1/app.jar --spring.config.location=/opt/apps/demo1/application.yml
+SuccessExitStatus=143
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
