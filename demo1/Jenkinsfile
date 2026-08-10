@@ -1,10 +1,13 @@
 pipeline {
     agent any
 
-    // 触发方式：GitHub webhook 推送后触发（需要在 Jenkins 任务里勾选
-    // "GitHub hook trigger for GITScm polling"，并在 GitHub 仓库配置 webhook）
+    // 触发方式：定时轮询 GitHub 仓库有没有新提交。
+    // Jenkins 跑在内网电脑上，GitHub 的 webhook 请求进不来，只能用这种
+    // "Jenkins 主动去问" 的方式代替 "GitHub 主动通知"。
+    // 语法同 crontab，"H/5 * * * *" 表示每 5 分钟检查一次（H 是 Jenkins
+    // 自动打散的随机分钟数，避免所有任务都在整点同时触发）。
     triggers {
-        githubPush()
+        pollSCM('H/5 * * * *')
     }
 
     tools {
